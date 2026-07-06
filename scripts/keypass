@@ -95,7 +95,7 @@ emit_miss() { # $1=key $2=status
 
 case $cmd in
   get)
-    if v=$(get_one "$1"); then printf '%s' "$v"; else st=$?; emit_miss "$1" "$st"; exit 1; fi ;;
+    if v=$(get_one "$1"); then printf '%s' "$v"; else emit_miss "$1" "$?"; exit 1; fi ;;
   export)
     rc=0
     for key do
