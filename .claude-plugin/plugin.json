@@ -1,0 +1,10 @@
+{
+  "name": "keypass",
+  "version": "0.1.0",
+  "description": "Move API keys and JWTs into the OS password store (Keychain, Secret Service — gnome-keyring/KWallet/KeePassXC, Windows Credential Manager) and keep them out of project files",
+  "author": {
+    "name": "Joseph Quinn",
+    "email": "jquinn@lexmata.ai"
+  },
+  "keywords": ["secrets", "keyring", "keychain", "credential-manager", "security"]
+}

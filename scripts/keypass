@@ -1,0 +1,112 @@
+#!/bin/sh
+# keypass — read/write secrets in the OS password store.
+#
+#   keypass get <service> <key>           secret to stdout, no trailing newline
+#   keypass set <service> <key>           secret read from stdin (whole payload)
+#   keypass del <service> <key>           idempotent: absent key is success
+#   keypass export <service> <key>...     sh export lines for many keys in
+#                                         one process; eval the output
+#
+# Key names must match [A-Za-z_][A-Za-z0-9_]* — they are interpolated into
+# eval'd `export` lines, so anything else is rejected (exit 64).
+#
+# Backends by platform:
+#   macOS                      Keychain (security(1))
+#   Windows (Git Bash/MSYS/    Credential Manager (keypass.ps1)
+#   Cygwin)
+#   Linux, FreeBSD, OpenBSD,   Secret Service over D-Bus via secret-tool —
+#   NetBSD, DragonFly          gnome-keyring, KWallet >= 5.97, or KeePassXC
+set -eu
+
+usage() {
+  {
+    echo "usage: keypass get|set|del <service> <key>    (set reads the secret from stdin)"
+    echo "       keypass export <service> <key>...      (prints export lines; eval the output)"
+  } >&2
+  exit 64
+}
+
+[ $# -ge 3 ] || usage
+cmd=$1 service=$2
+shift 2
+case $cmd in
+  get|set|del) [ $# -eq 1 ] || usage ;;
+  export) ;;
+  *) usage ;;
+esac
+
+# Reject key names that aren't valid shell identifiers. `export` prints
+# `export <key>=...` which the caller eval's, so an unvalidated key name is a
+# command-injection sink. Enforced on every verb so a bad name can't be stored.
+for k do
+  case $k in
+    ''|[0-9]*|*[!A-Za-z0-9_]*)
+      echo "keypass: invalid key name '$k' (must match [A-Za-z_][A-Za-z0-9_]*)" >&2
+      exit 64 ;;
+  esac
+done
+
+case "${OSTYPE:-$(uname -s)}" in
+  Darwin|darwin*)
+    get_one() { security find-generic-password -s "$service" -a "$1" -w; }
+    case $cmd in
+      set)
+        # $(cat) reads the whole payload (multi-line PEM safe) and is EOF-safe
+        # under set -e, unlike `read`, which aborts on newline-free stdin.
+        secret=$(cat)
+        # ponytail: secret transits argv for one syscall; security(1) has no stdin mode
+        exec security add-generic-password -U -s "$service" -a "$1" -w "$secret" ;;
+      del) security delete-generic-password -s "$service" -a "$1" >/dev/null 2>&1 || true; exit 0 ;;
+    esac
+    ;;
+  MINGW*|MSYS*|CYGWIN*|msys*|cygwin*)
+    ps1="$(dirname "$0")/keypass.ps1"
+    command -v cygpath >/dev/null 2>&1 && ps1=$(cygpath -w "$ps1")
+    # one powershell process for any number of keys — Add-Type compiles once;
+    # handles every verb (incl. get/export), so nothing falls through below
+    exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ps1" "$cmd" "$service" "$@"
+    ;;
+  *)
+    command -v secret-tool >/dev/null 2>&1 || {
+      echo "keypass: secret-tool not found — install libsecret and run a Secret Service daemon (gnome-keyring, kwallet, or keepassxc)" >&2
+      exit 69
+    }
+    # A locked keyring makes secret-tool block on an unlock prompt forever,
+    # which would hang every shell that sources a generated .envrc. Cap it.
+    # ponytail: timeout is coreutils/base on Linux+BSD; skip if truly absent.
+    if command -v timeout >/dev/null 2>&1; then TO="timeout 10"; else TO=""; fi
+    get_one() { $TO secret-tool lookup service "$service" key "$1"; }
+    case $cmd in
+      set) exec secret-tool store --label="$service/$1" service "$service" key "$1" ;;
+      del) secret-tool clear service "$service" key "$1" >/dev/null 2>&1 || true; exit 0 ;;
+    esac
+    ;;
+esac
+
+# Shared get/export — reached on Keychain/Secret Service only (Windows exec'd
+# above; set/del exec'd or exited within their platform branch).
+emit_miss() { # $1=key $2=status
+  if [ "${2:-}" = 124 ]; then
+    echo "keypass: keyring unavailable (timed out) for $service/$1" >&2
+  else
+    echo "keypass: missing $service/$1" >&2
+  fi
+}
+
+case $cmd in
+  get)
+    if v=$(get_one "$1"); then printf '%s' "$v"; else st=$?; emit_miss "$1" "$st"; exit 1; fi ;;
+  export)
+    rc=0
+    for key do
+      if v=$(get_one "$key"); then
+        # format must match keypass.ps1 export arm — both emit `export K='v'`
+        # with '\'' single-quote escaping; change both or eval diverges per-OS
+        printf "export %s='%s'\n" "$key" "$(printf '%s' "$v" | sed "s/'/'\\\\''/g")"
+      else
+        emit_miss "$key" "$?"
+        rc=1
+      fi
+    done
+    exit $rc ;;
+esac
