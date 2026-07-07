@@ -4,7 +4,7 @@
   "description": "Move API keys and JWTs into the OS password store (Keychain, Secret Service — gnome-keyring/KWallet/KeePassXC, Windows Credential Manager) and keep them out of project files",
   "author": {
     "name": "Joseph Quinn",
-    "email": "jquinn@lexmata.ai"
+    "email": "quinn.josephr@protonmail.com"
   },
   "license": "MIT",
   "keywords": ["secrets", "keyring", "keychain", "credential-manager", "security"]
