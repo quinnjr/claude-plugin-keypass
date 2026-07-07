@@ -6,5 +6,6 @@
     "name": "Joseph Quinn",
     "email": "jquinn@lexmata.ai"
   },
+  "license": "MIT",
   "keywords": ["secrets", "keyring", "keychain", "credential-manager", "security"]
 }

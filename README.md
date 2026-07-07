@@ -145,3 +145,7 @@ not covered by the suite.
   rewrite if needed.
 - **Portability of the value.** Multi-line secrets (PEM keys) round-trip
   correctly on all backends; `get` never appends a trailing newline.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
